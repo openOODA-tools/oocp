@@ -1,0 +1,84 @@
+// # oocp Terminal View Renderer
+//
+// Logline: Formats POSIX verbose output streams, dry-run action plans, and telemetry summary tables.
+//
+// Setup: Bridges CpSummary and CpFileRecord to human-readable terminal output.
+//
+// Beats:
+//   1. Format individual transfer records for POSIX -v verbose mode.
+//   2. Render planned actions for dry-run inspection mode.
+//   3. Render comprehensive transfer summary tables with theme styling.
+//   4. Format error notifications for failed or skipped items.
+
+import "core/cp_types.oo";
+import "render/cp_theme.oo";
+
+pub fn render_verbose_record(rec: CpFileRecord, th: ThemePalette) -> String {
+    if rec.status == "failed" {
+        return th.danger + "oocp: " + rec.error + th.reset + "\n";
+    }
+    if rec.status == "skipped" {
+        return th.warning + "oocp: skipped '" + rec.dst + "' (already exists)" + th.reset + "\n";
+    }
+    if rec.action == "dir" {
+        return th.dim + "oocp: directory '" + rec.dst + "'" + th.reset + "\n";
+    }
+    if rec.action == "reflink" {
+        return th.accent + "reflink: " + th.reset + "'" + rec.src + "' -> '" + rec.dst + "'\n";
+    }
+    if rec.action == "hardlink" {
+        return th.primary + "hardlink: " + th.reset + "'" + rec.src + "' => '" + rec.dst + "'\n";
+    }
+    if rec.action == "symlink" {
+        return th.secondary + "symlink: " + th.reset + "'" + rec.src + "' -> '" + rec.dst + "'\n";
+    }
+    return "'" + rec.src + "' -> '" + rec.dst + "'\n";
+}
+
+pub fn render_plan_view(plan: List[CpPlanItem], th: ThemePalette) -> String {
+    let mut out: String = th.bold + th.primary + "oocp Pre-Flight Transfer Plan:" + th.reset + "\n";
+    let n: Int = list_len(plan);
+    let mut i: Int = 0;
+    while i < n {
+        let item: CpPlanItem = list_get(plan, i);
+        let tag: String = if item.action == "create_dir" {
+            th.dim + "[DIR]    " + th.reset
+        } else if item.action == "reflink" {
+            th.accent + "[REFLINK]" + th.reset
+        } else if item.action == "hardlink" {
+            th.primary + "[LINK]   " + th.reset
+        } else if item.action == "symlink" {
+            th.secondary + "[SYMLINK]" + th.reset
+        } else {
+            th.success + "[COPY]   " + th.reset
+        };
+        let clobber_note: String = if item.exists_dst {
+            th.warning + " (overwrites destination)" + th.reset
+        } else {
+            ""
+        };
+        out = out + "  " + tag + " " + item.src + " -> " + item.dst + clobber_note + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_summary_table(s: CpSummary, th: ThemePalette) -> String {
+    let mut out: String = "\n" + th.bold + th.primary
+        + "=== oocp Transfer Summary ===" + th.reset + "\n";
+    out = out + "  Files Copied:    " + th.bold + to_string(s.total_files) + th.reset + "\n";
+    out = out + "  Directories:     " + to_string(s.total_dirs) + "\n";
+    out = out + "  Total Data:      " + th.success + format_bytes(s.total_bytes) + th.reset + "\n";
+    out = out + "  Reflink Clones:  " + th.accent + to_string(s.reflink_clones) + th.reset + "\n";
+    out = out + "  Hard Links:      " + to_string(s.hardlinks) + "\n";
+    out = out + "  Symlinks:        " + to_string(s.symlinks) + "\n";
+    if s.skipped > 0 {
+        out = out + "  Skipped:         " + th.warning + to_string(s.skipped) + th.reset + "\n";
+    }
+    if s.failed > 0 {
+        out = out + "  Failed:          " + th.danger + to_string(s.failed) + th.reset + "\n";
+    }
+    let bar: String = render_progress_bar(100, 24, th);
+    out = out + "  Progress:        " + bar + "\n";
+    return out;
+}

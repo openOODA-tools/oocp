@@ -1,0 +1,82 @@
+// # oocp Core Verification Anchor
+//
+// Logline: Deterministic unit tests verifying path manipulations, summary tracking, and planning routines.
+//
+// Setup: Pure test execution verifying core domain invariants.
+//
+// Beats:
+//   1. Verify path_basename, path_dirname, and path_join behaviors.
+//   2. Verify cycle detection and path ancestry checking.
+//   3. Verify summary aggregation and demo fixture generation.
+//   4. Export test harness runner.
+
+import "core/cp_types.oo";
+import "core/cp_path.oo";
+import "core/cp_engine.oo";
+import "core/cp_demo.oo";
+
+pub fn test_core_paths() -> Bool {
+    let b1: String = path_basename("/foo/bar/baz.txt");
+    if b1 != "baz.txt" {
+        return false;
+    }
+    let b2: String = path_basename("/foo/bar/");
+    if b2 != "bar" {
+        return false;
+    }
+    let d1: String = path_dirname("/foo/bar/baz.txt");
+    if d1 != "/foo/bar" {
+        return false;
+    }
+    let d2: String = path_dirname("file.txt");
+    if d2 != "." {
+        return false;
+    }
+    let j1: String = path_join("/usr/local", "bin");
+    if j1 != "/usr/local/bin" {
+        return false;
+    }
+    let j2: String = path_join("/var/log/", "auth.log");
+    if j2 != "/var/log/auth.log" {
+        return false;
+    }
+    let desc1: Bool = path_is_descendant("/a/b", "/a/b/c");
+    if !desc1 {
+        return false;
+    }
+    let desc2: Bool = path_is_descendant("/a/b", "/a/other");
+    if desc2 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_core_summary() -> Bool {
+    let s: CpSummary = build_demo_summary();
+    if s.total_files != 7 {
+        return false;
+    }
+    if s.reflink_clones != 4 {
+        return false;
+    }
+    if s.hardlinks != 1 {
+        return false;
+    }
+    if s.symlinks != 1 {
+        return false;
+    }
+    if s.total_bytes <= 0 {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_core_tests() -> Bool {
+    if !test_core_paths() {
+        return false;
+    }
+    if !test_core_summary() {
+        return false;
+    }
+    return true;
+}

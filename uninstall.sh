@@ -4,7 +4,7 @@
 # "Removes oocp binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toocp.github.io/oocp/uninstall.sh | bash
+#   curl -fsSL https://openooda-tools.github.io/oocp/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

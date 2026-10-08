@@ -1,0 +1,102 @@
+// # oocp IPC Verification Anchor
+//
+// Logline: Deterministic unit tests verifying CLI argument parsing, JSON field extraction, and MCP serialization.
+//
+// Setup: Pure test execution verifying IPC and MCP contracts.
+//
+// Beats:
+//   1. Verify JSON escaping and field extractions.
+//   2. Verify CLI argument parsing for flags, options, and positional arguments.
+//   3. Verify MCP initialize and tools/list rendering.
+//   4. Export test harness runner.
+
+import "core/cp_types.oo";
+import "ipc/json_field.oo";
+import "ipc/cp_opts.oo";
+import "ipc/mcp_serve.oo";
+
+pub fn test_ipc_json() -> Bool {
+    let raw: String = "Hello \"World\"\nTest\tLine";
+    let esc: String = json_escape(raw);
+    if !str_contains(esc, "\\\"") {
+        return false;
+    }
+    let unesc: String = json_unescape(esc);
+    if unesc != raw {
+        return false;
+    }
+    let sample: String = "{\"name\":\"cp_copy_file\",\"force\":true,\"count\":42}";
+    let name: String = extract_json_str(sample, "name");
+    if name != "cp_copy_file" {
+        return false;
+    }
+    let force: Bool = extract_json_bool(sample, "force", false);
+    if !force {
+        return false;
+    }
+    let count: Int = extract_json_int(sample, "count", 0);
+    if count != 42 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_ipc_cli() -> Bool {
+    let mut args: List[String] = list_new();
+    args = list_push(args, "-rf");
+    args = list_push(args, "--reflink=always");
+    args = list_push(args, "src_dir");
+    args = list_push(args, "dst_dir");
+
+    let p: ParsedCli = parse_cli_args(args);
+    if !p.config.recursive {
+        return false;
+    }
+    if !p.config.force {
+        return false;
+    }
+    if p.config.reflink_mode != "always" {
+        return false;
+    }
+    if p.config.dest != "dst_dir" {
+        return false;
+    }
+    if list_len(p.config.sources) != 1 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_ipc_mcp_init() -> Bool {
+    let init_resp: String = render_mcp_init("\"test-1\"");
+    if !str_contains(init_resp, "\"protocolVersion\":\"2024-11-05\"") {
+        return false;
+    }
+    if !str_contains(init_resp, "\"name\":\"oocp\"") {
+        return false;
+    }
+    let list_resp: String = render_mcp_tools_list("\"test-2\"");
+    if !str_contains(list_resp, "cp_copy_file") {
+        return false;
+    }
+    if !str_contains(list_resp, "cp_copy_tree") {
+        return false;
+    }
+    if !str_contains(list_resp, "cp_reflink") {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_ipc_tests() -> Bool {
+    if !test_ipc_json() {
+        return false;
+    }
+    if !test_ipc_cli() {
+        return false;
+    }
+    if !test_ipc_mcp_init() {
+        return false;
+    }
+    return true;
+}

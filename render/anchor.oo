@@ -1,0 +1,87 @@
+// # oocp Render Verification Anchor
+//
+// Logline: Deterministic unit tests verifying theme palettes, progress bar rendering, and JSON formatting.
+//
+// Setup: Pure test execution verifying rendering and formatting invariants.
+//
+// Beats:
+//   1. Verify theme palette resolution and fallback behavior.
+//   2. Verify progress bar formatting at zero, mid, and full completions.
+//   3. Verify byte size human formatting logic across boundaries.
+//   4. Verify JSON and JSON Lines serialization output.
+
+import "core/cp_types.oo";
+import "core/cp_demo.oo";
+import "render/cp_theme.oo";
+import "render/cp_view.oo";
+import "render/cp_json.oo";
+
+pub fn test_render_themes() -> Bool {
+    let t_def: ThemePalette = get_theme("default");
+    if chars_len(t_def.primary) == 0 {
+        return false;
+    }
+    let t_mono: ThemePalette = get_theme("monochrome");
+    if chars_len(t_mono.primary) != 0 {
+        return false;
+    }
+    let t_emb: ThemePalette = get_theme("ember");
+    if chars_len(t_emb.primary) == 0 {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_render_formatters() -> Bool {
+    let t_def: ThemePalette = get_theme("default");
+    let bar: String = render_progress_bar(50, 10, t_def);
+    if !str_contains(bar, "50%") {
+        return false;
+    }
+    let b1: String = format_bytes(512);
+    if b1 != "512 B" {
+        return false;
+    }
+    let b2: String = format_bytes(2048);
+    if b2 != "2 KB" {
+        return false;
+    }
+    let b3: String = format_bytes(10485760);
+    if b3 != "10 MB" {
+        return false;
+    }
+    return true;
+}
+
+pub fn test_render_json() -> Bool {
+    let s: CpSummary = build_demo_summary();
+    let json: String = summary_to_json(s);
+    if !str_contains(json, "\"tool\":\"oocp\"") {
+        return false;
+    }
+    if !str_contains(json, "\"total_files\":7") {
+        return false;
+    }
+    let jsonl: String = summary_to_jsonl(s);
+    if !str_contains(jsonl, "\"action\":\"reflink\"") {
+        return false;
+    }
+    let tbl: String = render_summary_table(s, get_theme("default"));
+    if !str_contains(tbl, "Transfer Summary") {
+        return false;
+    }
+    return true;
+}
+
+pub fn run_render_tests() -> Bool {
+    if !test_render_themes() {
+        return false;
+    }
+    if !test_render_formatters() {
+        return false;
+    }
+    if !test_render_json() {
+        return false;
+    }
+    return true;
+}

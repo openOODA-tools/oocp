@@ -1,0 +1,101 @@
+// # oocp Demo Simulation Harness
+//
+// Logline: Synthetic execution fixtures demonstrating zero-copy reflink cloning and recursive directory copy.
+//
+// Setup: Standalone generator requiring no external storage access.
+//
+// Beats:
+//   1. Build synthetic CpFileRecord fixtures representing realistic server workloads.
+//   2. Demonstrate reflink clone, hardlink, symlink, and directory synthesis.
+//   3. Compute aggregate telemetry metrics (throughput, bytes, duration).
+//   4. Return pre-configured demo configurations and summary reports.
+
+import "core/cp_types.oo";
+
+pub fn build_demo_summary() -> CpSummary {
+    let mut s: CpSummary = empty_cp_summary();
+
+    let r1: CpFileRecord = CpFileRecord {
+        src: "config/systemd/quadlet.container",
+        dst: "/etc/containers/systemd/quadlet.container",
+        bytes: 842,
+        action: "reflink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r1);
+
+    let r2: CpFileRecord = CpFileRecord {
+        src: "bin/sovereign-agent",
+        dst: "/usr/local/bin/sovereign-agent",
+        bytes: 14680064,
+        action: "reflink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r2);
+
+    let r3: CpFileRecord = CpFileRecord {
+        src: "certs/ca-authority.crt",
+        dst: "/etc/pki/ca-trust/source/anchors/ca-authority.crt",
+        bytes: 2048,
+        action: "hardlink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r3);
+
+    let r4: CpFileRecord = CpFileRecord {
+        src: "models/weights.bin",
+        dst: "/srv/ai/models/weights.bin",
+        bytes: 104857600,
+        action: "reflink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r4);
+
+    let r5: CpFileRecord = CpFileRecord {
+        src: "etc/tmpfiles.d/openooda.conf",
+        dst: "/etc/tmpfiles.d/openooda.conf",
+        bytes: 412,
+        action: "copy",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r5);
+
+    let r6: CpFileRecord = CpFileRecord {
+        src: "var/db/ledger.wal",
+        dst: "/var/lib/openooda/ledger.wal",
+        bytes: 4194304,
+        action: "reflink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r6);
+
+    let r7: CpFileRecord = CpFileRecord {
+        src: "docs/MANUAL.md",
+        dst: "/usr/share/doc/openooda/MANUAL.md",
+        bytes: 65536,
+        action: "symlink",
+        status: "success",
+        error: ""
+    };
+    s = summary_add_record(s, r7);
+
+    return s;
+}
+
+pub fn build_demo_config() -> CpConfig {
+    let mut cfg: CpConfig = default_cp_config();
+    cfg.demo_mode = true;
+    cfg.recursive = true;
+    cfg.preserve_attrs = true;
+    cfg.verbose = true;
+    cfg.reflink_mode = "auto";
+    cfg.sources = list_push(list_new(), "services/matrix/");
+    cfg.dest = "/var/lib/openooda/matrix/";
+    return cfg;
+}

@@ -1,0 +1,95 @@
+// # oocp Path & Directory Primitives
+//
+// Logline: Path manipulation helpers, hierarchy creators, and directory cycle detectors.
+//
+// Setup: Demands &FsWriteCap for directory creation and &FsReadCap for probe operations.
+//
+// Beats:
+//   1. Implement path_basename and path_dirname with trailing slash normalization.
+//   2. Implement path_join ensuring single slash separation.
+//   3. Implement path_is_descendant for directory copy recursion cycle guards.
+//   4. Implement ensure_dir_p to synthesize directory trees.
+
+pub fn path_basename(path: String) -> String {
+    let mut p: String = path;
+    while str_ends_with(p, "/") && chars_len(p) > 1 {
+        p = str_slice(p, 0, chars_len(p) - 1);
+    }
+    let n: Int = chars_len(p);
+    let mut i: Int = n - 1;
+    while i >= 0 {
+        if char_at(p, i) == "/" {
+            return str_slice(p, i + 1, n);
+        }
+        i = i - 1;
+    }
+    return p;
+}
+
+pub fn path_dirname(path: String) -> String {
+    let mut p: String = path;
+    while str_ends_with(p, "/") && chars_len(p) > 1 {
+        p = str_slice(p, 0, chars_len(p) - 1);
+    }
+    let n: Int = chars_len(p);
+    let mut i: Int = n - 1;
+    while i >= 0 {
+        if char_at(p, i) == "/" {
+            if i == 0 {
+                return "/";
+            }
+            return str_slice(p, 0, i);
+        }
+        i = i - 1;
+    }
+    return ".";
+}
+
+pub fn path_join(base: String, child: String) -> String {
+    if chars_len(base) == 0 {
+        return child;
+    }
+    if str_ends_with(base, "/") {
+        return base + child;
+    }
+    return base + "/" + child;
+}
+
+pub fn path_is_descendant(parent: String, child: String) -> Bool {
+    if parent == child {
+        return true;
+    }
+    let p_slash: String = if str_ends_with(parent, "/") { parent } else { parent + "/" };
+    return str_starts_with(child, p_slash);
+}
+
+pub fn ensure_dir_p(fw: &FsWriteCap, dir: String) -> Result[Void, String] {
+    let n: Int = chars_len(dir);
+    if n == 0 || dir == "." {
+        return Ok(());
+    }
+    let mut acc: String = "";
+    let mut i: Int = 0;
+    if char_at(dir, 0) == "/" {
+        acc = "/";
+        i = 1;
+    }
+    while i < n {
+        let c: String = char_at(dir, i);
+        if c == "/" {
+            if chars_len(acc) > 0 && acc != "/" {
+                let _mk: Result[Void, String] = oo_fs_mkdir(fw, acc);
+            }
+            if !str_ends_with(acc, "/") {
+                acc = acc + "/";
+            }
+        } else {
+            acc = acc + c;
+        }
+        i = i + 1;
+    }
+    if chars_len(acc) > 0 && acc != "/" {
+        let _res: Result[Void, String] = oo_fs_mkdir(fw, acc);
+    }
+    return oo_fs_mkdir(fw, dir);
+}

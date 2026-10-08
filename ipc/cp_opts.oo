@@ -1,0 +1,146 @@
+// # oocp CLI Options Parser
+//
+// Logline: Robust argument parser mapping POSIX cp flags and openOODA extensions to CpConfig.
+//
+// Setup: Parses raw String arguments into structured options with capability safety.
+//
+// Beats:
+//   1. Define ParsedCli container holding CpConfig and action dispatch flags.
+//   2. Process standard short and long flags for recursive, force, and link modes.
+//   3. Extract reflink modes, target directories, and backup suffix overrides.
+//   4. Separate positional source arguments from destination path.
+
+import "core/cp_types.oo";
+
+type ParsedCli = struct {
+    config: CpConfig,
+    show_help: Bool,
+    show_version: Bool,
+    run_mcp: Bool,
+    parse_error: String
+};
+
+pub fn parse_cli_args(args: List[String]) -> ParsedCli {
+    let mut cfg: CpConfig = default_cp_config();
+    let mut positionals: List[String] = list_new();
+    let mut show_help: Bool = false;
+    let mut show_version: Bool = false;
+    let mut run_mcp: Bool = false;
+    let mut parse_error: String = "";
+
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+    while i < num_args {
+        let arg: String = list_get(args, i);
+        if arg == "-h" || arg == "--help" {
+            show_help = true;
+        } else if arg == "--version" {
+            show_version = true;
+        } else if arg == "--mcp" {
+            run_mcp = true;
+        } else if arg == "-r" || arg == "-R" || arg == "--recursive" {
+            cfg.recursive = true;
+        } else if arg == "-a" || arg == "--archive" {
+            cfg.archive = true;
+            cfg.recursive = true;
+            cfg.preserve_attrs = true;
+        } else if arg == "-p" || arg == "--preserve" {
+            cfg.preserve_attrs = true;
+        } else if arg == "-u" || arg == "--update" {
+            cfg.update_only = true;
+        } else if arg == "-f" || arg == "--force" {
+            cfg.force = true;
+        } else if arg == "-n" || arg == "--no-clobber" {
+            cfg.no_clobber = true;
+        } else if arg == "-v" || arg == "--verbose" {
+            cfg.verbose = true;
+        } else if arg == "-s" || arg == "--symbolic-link" {
+            cfg.symbolic_link = true;
+        } else if arg == "-l" || arg == "--link" {
+            cfg.hard_link = true;
+        } else if arg == "--reflink" {
+            cfg.reflink_mode = "always";
+        } else if str_starts_with(arg, "--reflink=") {
+            cfg.reflink_mode = str_slice(arg, 10, chars_len(arg));
+        } else if arg == "-b" || arg == "--backup" {
+            cfg.backup = true;
+        } else if arg == "-S" || arg == "--suffix" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.backup_suffix = list_get(args, i);
+            }
+        } else if arg == "-t" || arg == "--target-directory" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.target_dir = list_get(args, i);
+            }
+        } else if arg == "-T" || arg == "--no-target-directory" {
+            cfg.no_target_dir = true;
+        } else if arg == "--demo" {
+            cfg.demo_mode = true;
+        } else if arg == "--json" {
+            cfg.json_output = true;
+        } else if arg == "--theme" {
+            if i + 1 < num_args {
+                i = i + 1;
+                cfg.theme = list_get(args, i);
+            }
+        } else if str_starts_with(arg, "-") && chars_len(arg) > 1 {
+            // Check combined single letter flags like -rv or -rf
+            let n_flags: Int = chars_len(arg);
+            let mut fi: Int = 1;
+            while fi < n_flags {
+                let fc: String = char_at(arg, fi);
+                if fc == "r" || fc == "R" {
+                    cfg.recursive = true;
+                } else if fc == "a" {
+                    cfg.archive = true;
+                    cfg.recursive = true;
+                    cfg.preserve_attrs = true;
+                } else if fc == "p" {
+                    cfg.preserve_attrs = true;
+                } else if fc == "u" {
+                    cfg.update_only = true;
+                } else if fc == "f" {
+                    cfg.force = true;
+                } else if fc == "n" {
+                    cfg.no_clobber = true;
+                } else if fc == "v" {
+                    cfg.verbose = true;
+                } else if fc == "s" {
+                    cfg.symbolic_link = true;
+                } else if fc == "l" {
+                    cfg.hard_link = true;
+                } else if fc == "b" {
+                    cfg.backup = true;
+                }
+                fi = fi + 1;
+            }
+        } else {
+            positionals = list_push(positionals, arg);
+        }
+        i = i + 1;
+    }
+
+    let n_pos: Int = list_len(positionals);
+    if chars_len(cfg.target_dir) > 0 {
+        cfg.sources = positionals;
+    } else if n_pos >= 2 {
+        cfg.dest = list_get(positionals, n_pos - 1);
+        let mut pi: Int = 0;
+        while pi < n_pos - 1 {
+            cfg.sources = list_push(cfg.sources, list_get(positionals, pi));
+            pi = pi + 1;
+        }
+    } else if n_pos == 1 {
+        cfg.sources = positionals;
+    }
+
+    return ParsedCli {
+        config: cfg,
+        show_help: show_help,
+        show_version: show_version,
+        run_mcp: run_mcp,
+        parse_error: parse_error
+    };
+}

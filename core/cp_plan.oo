@@ -1,0 +1,168 @@
+// # oocp Pre-Flight Planner
+//
+// Logline: Non-mutating pre-flight inspector and dry-run transfer planner with conflict analysis.
+//
+// Setup: Demands &FsReadCap to inspect source structures and target destinations without side effects.
+//
+// Beats:
+//   1. Inspect individual paths for existence, directory status, and byte sizes.
+//   2. Plan transfer actions including reflink suitability, overwrites, and backups.
+//   3. Recursively enumerate planned actions for entire directory hierarchies.
+//   4. Format pre-flight inspection summaries for CLI dry-run and MCP inspection.
+
+import "core/cp_types.oo";
+import "core/cp_path.oo";
+
+pub fn plan_copy_file(
+    fr: &FsReadCap,
+    src: String,
+    dst: String,
+    cfg: CpConfig
+) -> CpPlanItem {
+    let src_exists: Bool = path_exists(fr, src);
+    if !src_exists {
+        return CpPlanItem {
+            src: src,
+            dst: dst,
+            action: "error_not_found",
+            is_dir: false,
+            exists_dst: false,
+            bytes: 0
+        };
+    }
+
+    let is_dir: Bool = oo_fs_is_dir(fr, src);
+    let dst_exists: Bool = path_exists(fr, dst);
+    let sz: Int = if is_dir { 0 } else { oo_file_size(fr, src) };
+
+    let mut action: String = "copy";
+    if is_dir {
+        action = "create_dir";
+    } else if cfg.hard_link {
+        action = "hardlink";
+    } else if cfg.symbolic_link {
+        action = "symlink";
+    } else if cfg.reflink_mode == "always" || cfg.reflink_mode == "auto" {
+        action = "reflink";
+    }
+
+    if dst_exists {
+        if cfg.no_clobber {
+            action = "skip_existing";
+        } else if cfg.backup {
+            action = action + "+backup";
+        } else if cfg.force {
+            action = action + "+overwrite";
+        }
+    }
+
+    return CpPlanItem {
+        src: src,
+        dst: dst,
+        action: action,
+        is_dir: is_dir,
+        exists_dst: dst_exists,
+        bytes: sz
+    };
+}
+
+pub fn plan_copy_tree(
+    fr: &FsReadCap,
+    src: String,
+    dst: String,
+    cfg: CpConfig,
+    items: List[CpPlanItem]
+) -> List[CpPlanItem] {
+    let mut cur_items: List[CpPlanItem] = items;
+    if !path_exists(fr, src) {
+        let err_item: CpPlanItem = plan_copy_file(fr, src, dst, cfg);
+        return list_push(cur_items, err_item);
+    }
+
+    let is_dir: Bool = oo_fs_is_dir(fr, src);
+    if is_dir {
+        let dir_item: CpPlanItem = plan_copy_file(fr, src, dst, cfg);
+        cur_items = list_push(cur_items, dir_item);
+
+        if !cfg.recursive && !cfg.archive {
+            return cur_items;
+        }
+
+        let entries: List[String] = oo_fs_read_dir(fr, src);
+        let n: Int = list_len(entries);
+        let mut i: Int = 0;
+        while i < n {
+            let name: String = list_get(entries, i);
+            let s_sub: String = path_join(src, name);
+            let d_sub: String = path_join(dst, name);
+            cur_items = plan_copy_tree(fr, s_sub, d_sub, cfg, cur_items);
+            i = i + 1;
+        }
+        return cur_items;
+    }
+
+    let file_item: CpPlanItem = plan_copy_file(fr, src, dst, cfg);
+    return list_push(cur_items, file_item);
+}
+
+pub fn generate_cp_plan(
+    fr: &FsReadCap,
+    cfg: CpConfig
+) -> List[CpPlanItem] {
+    let mut plan: List[CpPlanItem] = list_new();
+    let n_sources: Int = list_len(cfg.sources);
+    if n_sources == 0 {
+        return plan;
+    }
+
+    let is_target_dir: Bool = if chars_len(cfg.target_dir) > 0 {
+        true
+    } else if path_exists(fr, cfg.dest) {
+        oo_fs_is_dir(fr, cfg.dest)
+    } else {
+        str_ends_with(cfg.dest, "/")
+    };
+
+    let target_base: String = if chars_len(cfg.target_dir) > 0 {
+        cfg.target_dir
+    } else {
+        cfg.dest
+    };
+
+    let mut i: Int = 0;
+    while i < n_sources {
+        let src: String = list_get(cfg.sources, i);
+        let dst: String = if is_target_dir {
+            path_join(target_base, path_basename(src))
+        } else {
+            target_base
+        };
+        plan = plan_copy_tree(fr, src, dst, cfg, plan);
+        i = i + 1;
+    }
+    return plan;
+}
+
+pub fn inspect_transfer_json(
+    fr: &FsReadCap,
+    src: String,
+    dst: String
+) -> String {
+    let src_exists: Bool = path_exists(fr, src);
+    let dst_exists: Bool = path_exists(fr, dst);
+    let src_is_dir: Bool = if src_exists { oo_fs_is_dir(fr, src) } else { false };
+    let dst_is_dir: Bool = if dst_exists { oo_fs_is_dir(fr, dst) } else { false };
+    let src_sz: Int = if src_exists && !src_is_dir { oo_file_size(fr, src) } else { 0 };
+    let dst_sz: Int = if dst_exists && !dst_is_dir { oo_file_size(fr, dst) } else { 0 };
+
+    return "{\"source\":\"" + src + "\""
+        + ",\"source_exists\":" + (if src_exists { "true" } else { "false" })
+        + ",\"source_is_dir\":" + (if src_is_dir { "true" } else { "false" })
+        + ",\"source_bytes\":" + to_string(src_sz)
+        + ",\"destination\":\"" + dst + "\""
+        + ",\"destination_exists\":" + (if dst_exists { "true" } else { "false" })
+        + ",\"destination_is_dir\":" + (if dst_is_dir { "true" } else { "false" })
+        + ",\"destination_bytes\":" + to_string(dst_sz)
+        + ",\"clobber_warning\":" + (if dst_exists { "true" } else { "false" })
+        + "}";
+}

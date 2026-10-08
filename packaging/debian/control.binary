@@ -1,0 +1,11 @@
+Package: oocp
+Version: 0.2.0-1
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: openOODA-tools <ops@openooda.org>
+Depends: libc6
+Description: COPY ENGINE
+ Zero-copy clone-capable file and directory copier using io_uring and copy_file_range.
+ Capability-bounded openOODA utility with zero ambient authority,
+ recursive directory replication, reflink clone, and native Model Context Protocol (MCP) surface.

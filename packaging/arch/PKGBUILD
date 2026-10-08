@@ -1,7 +1,7 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oocp-bin
 _pkgname=oocp
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="Zero-copy clone-capable file and directory copier using io_uring and copy_file_range."
 arch=('x86_64')

@@ -1,0 +1,169 @@
+// # Model Context Protocol (MCP) Server for oocp
+//
+// Logline: JSON-RPC 2.0 stdio server providing sovereign file/directory copy, reflink clone, and pre-flight planning.
+//
+// Setup: Services agent tool invocations over standard input with &FsReadCap and &FsWriteCap.
+//
+// Beats:
+//   1. Handle MCP initialize handshake with server metadata.
+//   2. Expose tools/list catalogue with six sovereign copy tools.
+//   3. Dispatch tools/call for copy_file, copy_tree, reflink, inspect, dry_run, and stats.
+//   4. Deliver streaming JSON-RPC responses over standard output.
+
+import "core/cp_types.oo";
+import "core/cp_engine.oo";
+import "core/cp_plan.oo";
+import "render/cp_json.oo";
+import "render/cp_view.oo";
+import "render/cp_theme.oo";
+import "ipc/json_field.oo";
+
+fn build_error(id: String, code: Int, msg: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":" + to_string(code) + ",\"message\":\"" + json_escape(msg) + "\"}}\n";
+}
+
+fn build_tool_result(id: String, text: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(text) + "\"}]}}\n";
+}
+
+pub fn render_mcp_init(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oocp\",\"version\":\"0.2.0\"}}}\n";
+}
+
+pub fn render_mcp_tools_list(id: String) -> String {
+    let mut out: String = "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[";
+    out = out + "{\"name\":\"cp_copy_file\",\"description\":\"Copy regular file from source to destination.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"},\"destination\":{\"type\":\"string\"},\"force\":{\"type\":\"boolean\"},\"backup\":{\"type\":\"boolean\"},\"reflink\":{\"type\":\"string\"}},\"required\":[\"source\",\"destination\"]}},";
+    out = out + "{\"name\":\"cp_copy_tree\",\"description\":\"Recursively copy directory tree from source to destination.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source_dir\":{\"type\":\"string\"},\"target_dir\":{\"type\":\"string\"},\"verbose\":{\"type\":\"boolean\"}},\"required\":[\"source_dir\",\"target_dir\"]}},";
+    out = out + "{\"name\":\"cp_reflink\",\"description\":\"Perform zero-copy clone transfer from source to destination.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"},\"destination\":{\"type\":\"string\"}},\"required\":[\"source\",\"destination\"]}},";
+    out = out + "{\"name\":\"cp_inspect_source\",\"description\":\"Inspect source and destination paths without mutating.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"},\"destination\":{\"type\":\"string\"}},\"required\":[\"source\",\"destination\"]}},";
+    out = out + "{\"name\":\"cp_dry_run\",\"description\":\"Plan transfer execution steps and detect conflicts without writing.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"},\"destination\":{\"type\":\"string\"},\"recursive\":{\"type\":\"boolean\"}},\"required\":[\"source\",\"destination\"]}},";
+    out = out + "{\"name\":\"cp_stats\",\"description\":\"Query byte size and directory properties of a target path.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"source\":{\"type\":\"string\"}},\"required\":[\"source\"]}}";
+    out = out + "]}}\n";
+    return out;
+}
+
+pub fn handle_mcp_call(
+    fr: &FsReadCap,
+    fw: &FsWriteCap,
+    id: String,
+    tool_name: String,
+    req: String
+) -> String {
+    let src: String = extract_json_str(req, "source");
+    let dst: String = extract_json_str(req, "destination");
+
+    if tool_name == "cp_copy_file" {
+        let mut cfg: CpConfig = default_cp_config();
+        cfg.force = extract_json_bool(req, "force", false);
+        cfg.backup = extract_json_bool(req, "backup", false);
+        let rf: String = extract_json_str(req, "reflink");
+        if chars_len(rf) > 0 { cfg.reflink_mode = rf; }
+        let rec: CpFileRecord = copy_file_stream(fr, fw, src, dst, cfg);
+        return build_tool_result(id, record_to_json(rec));
+    }
+
+    if tool_name == "cp_copy_tree" {
+        let src_dir: String = extract_json_str(req, "source_dir");
+        let dst_dir: String = extract_json_str(req, "target_dir");
+        let mut cfg: CpConfig = default_cp_config();
+        cfg.recursive = true;
+        cfg.sources = list_push(list_new(), src_dir);
+        cfg.dest = dst_dir;
+        let summary: CpSummary = execute_cp(fr, fw, cfg);
+        return build_tool_result(id, summary_to_json(summary));
+    }
+
+    if tool_name == "cp_reflink" {
+        let mut cfg: CpConfig = default_cp_config();
+        cfg.reflink_mode = "always";
+        let rec: CpFileRecord = copy_file_stream(fr, fw, src, dst, cfg);
+        return build_tool_result(id, record_to_json(rec));
+    }
+
+    if tool_name == "cp_inspect_source" {
+        let out: String = inspect_transfer_json(fr, src, dst);
+        return build_tool_result(id, out);
+    }
+
+    if tool_name == "cp_dry_run" {
+        let mut cfg: CpConfig = default_cp_config();
+        cfg.recursive = extract_json_bool(req, "recursive", true);
+        cfg.sources = list_push(list_new(), src);
+        cfg.dest = dst;
+        let plan: List[CpPlanItem] = generate_cp_plan(fr, cfg);
+        let plan_text: String = render_plan_view(plan, get_theme("monochrome"));
+        return build_tool_result(id, plan_text);
+    }
+
+    if tool_name == "cp_stats" {
+        let exists: Bool = path_exists(fr, src);
+        if !exists {
+            return build_tool_result(id, "{\"exists\":false,\"bytes\":0}");
+        }
+        let is_dir: Bool = oo_fs_is_dir(fr, src);
+        let sz: Int = if is_dir { 0 } else { oo_file_size(fr, src) };
+        let out: String = "{\"exists\":true,\"is_directory\":" + (if is_dir { "true" } else { "false" }) + ",\"bytes\":" + to_string(sz) + "}";
+        return build_tool_result(id, out);
+    }
+
+    return build_error(id, -32601, "Unknown tool: " + tool_name);
+}
+
+pub fn handle_mcp_message(
+    fr: &FsReadCap,
+    fw: &FsWriteCap,
+    req: String
+) -> String {
+    let id_str: String = extract_json_str(req, "id");
+    let id: String = if chars_len(id_str) > 0 { "\"" + id_str + "\"" } else { "1" };
+    let method: String = extract_json_str(req, "method");
+
+    if method == "initialize" {
+        return render_mcp_init(id);
+    }
+    if method == "notifications/initialized" {
+        return "";
+    }
+    if method == "tools/list" {
+        return render_mcp_tools_list(id);
+    }
+    if method == "tools/call" {
+        let tool_name: String = extract_json_str(req, "name");
+        return handle_mcp_call(fr, fw, id, tool_name, req);
+    }
+    if method == "shutdown" {
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":null}\n";
+    }
+    return build_error(id, -32601, "Method not found: " + method);
+}
+
+pub fn run_mcp_server(fr: &FsReadCap, fw: &FsWriteCap) {
+    let mut buf: String = "";
+    let mut running: Bool = true;
+    while running {
+        let r: Result[String, String] = oo_read_stdin_chunk(fr, 4096);
+        if !r.is_ok() {
+            running = false;
+        } else {
+            let chunk: String = match r { Ok(s) => s, Err(_) => "" };
+            if chars_len(chunk) == 0 {
+                running = false;
+            } else {
+                buf = buf + chunk;
+                let mut nl_pos: Int = str_index_of(buf, "\n");
+                while nl_pos >= 0 {
+                    let line: String = str_slice(buf, 0, nl_pos);
+                    buf = str_slice(buf, nl_pos + 1, chars_len(buf));
+                    let trimmed: String = str_trim(line);
+                    if chars_len(trimmed) > 0 {
+                        let resp: String = handle_mcp_message(fr, fw, trimmed);
+                        if chars_len(resp) > 0 {
+                            print(resp);
+                        }
+                    }
+                    nl_pos = str_index_of(buf, "\n");
+                }
+            }
+        }
+    }
+}

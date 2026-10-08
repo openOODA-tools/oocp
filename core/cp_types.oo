@@ -1,0 +1,128 @@
+// # oocp Core Data Types
+//
+// Logline: Type definitions for capability-bounded copy options, transfer records, and telemetry summaries.
+//
+// Setup: Imported by cp_engine, cp_plan, cp_demo, renderers, and CLI/MCP harnesses.
+//
+// Beats:
+//   1. Declare CpConfig representing parsed CLI flags and execution parameters.
+//   2. Declare CpFileRecord and CpPlanItem representing individual transfer actions.
+//   3. Declare CpSummary holding aggregate transfer metrics and results.
+//   4. Provide helper initializers for configs and summary aggregation.
+
+type CpConfig = struct {
+    recursive: Bool,
+    archive: Bool,
+    preserve_attrs: Bool,
+    update_only: Bool,
+    force: Bool,
+    no_clobber: Bool,
+    verbose: Bool,
+    symbolic_link: Bool,
+    hard_link: Bool,
+    reflink_mode: String,
+    backup: Bool,
+    backup_suffix: String,
+    target_dir: String,
+    no_target_dir: Bool,
+    json_output: Bool,
+    demo_mode: Bool,
+    theme: String,
+    sources: List[String],
+    dest: String
+};
+
+type CpFileRecord = struct {
+    src: String,
+    dst: String,
+    bytes: Int,
+    action: String,
+    status: String,
+    error: String
+};
+
+type CpPlanItem = struct {
+    src: String,
+    dst: String,
+    action: String,
+    is_dir: Bool,
+    exists_dst: Bool,
+    bytes: Int
+};
+
+type CpSummary = struct {
+    total_files: Int,
+    total_dirs: Int,
+    total_bytes: Int,
+    reflink_clones: Int,
+    hardlinks: Int,
+    symlinks: Int,
+    skipped: Int,
+    failed: Int,
+    records: List[CpFileRecord]
+};
+
+pub fn default_cp_config() -> CpConfig {
+    return CpConfig {
+        recursive: false,
+        archive: false,
+        preserve_attrs: false,
+        update_only: false,
+        force: false,
+        no_clobber: false,
+        verbose: false,
+        symbolic_link: false,
+        hard_link: false,
+        reflink_mode: "auto",
+        backup: false,
+        backup_suffix: "~",
+        target_dir: "",
+        no_target_dir: false,
+        json_output: false,
+        demo_mode: false,
+        theme: "default",
+        sources: list_new(),
+        dest: ""
+    };
+}
+
+pub fn empty_cp_summary() -> CpSummary {
+    return CpSummary {
+        total_files: 0,
+        total_dirs: 0,
+        total_bytes: 0,
+        reflink_clones: 0,
+        hardlinks: 0,
+        symlinks: 0,
+        skipped: 0,
+        failed: 0,
+        records: list_new()
+    };
+}
+
+pub fn summary_add_record(s: CpSummary, rec: CpFileRecord) -> CpSummary {
+    let mut updated: CpSummary = s;
+    updated.records = list_push(updated.records, rec);
+    if rec.status == "failed" {
+        updated.failed = updated.failed + 1;
+        return updated;
+    }
+    if rec.status == "skipped" {
+        updated.skipped = updated.skipped + 1;
+        return updated;
+    }
+    if rec.action == "dir" {
+        updated.total_dirs = updated.total_dirs + 1;
+    } else {
+        updated.total_files = updated.total_files + 1;
+        updated.total_bytes = updated.total_bytes + rec.bytes;
+        if rec.action == "reflink" {
+            updated.reflink_clones = updated.reflink_clones + 1;
+        } else if rec.action == "hardlink" {
+            updated.hardlinks = updated.hardlinks + 1;
+        } else if rec.action == "symlink" {
+            updated.symlinks = updated.symlinks + 1;
+        }
+    }
+    return updated;
+}

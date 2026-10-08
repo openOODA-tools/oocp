@@ -1,0 +1,62 @@
+// # oocp JSON Serializer
+//
+// Logline: Formats file transfer records and aggregate summaries into structured JSON Lines and payloads.
+//
+// Setup: Bridges internal CpSummary and CpFileRecord to standard JSON representations.
+//
+// Beats:
+//   1. Serialize individual CpFileRecord instances to JSON objects.
+//   2. Serialize complete CpSummary reports to JSON objects.
+//   3. Stream file transfer records as newline-delimited JSON Lines (JSONL).
+//   4. Format plan items for structured pre-flight dry-run inspection.
+
+import "core/cp_types.oo";
+
+pub fn record_to_json(rec: CpFileRecord) -> String {
+    return "{\"tool\":\"oocp\""
+        + ",\"source\":\"" + rec.src + "\""
+        + ",\"destination\":\"" + rec.dst + "\""
+        + ",\"bytes\":" + to_string(rec.bytes)
+        + ",\"action\":\"" + rec.action + "\""
+        + ",\"status\":\"" + rec.status + "\""
+        + ",\"error\":\"" + rec.error + "\""
+        + "}";
+}
+
+pub fn summary_to_json(s: CpSummary) -> String {
+    let mut out: String = "{\"tool\":\"oocp\""
+        + ",\"total_files\":" + to_string(s.total_files)
+        + ",\"total_dirs\":" + to_string(s.total_dirs)
+        + ",\"total_bytes\":" + to_string(s.total_bytes)
+        + ",\"reflink_clones\":" + to_string(s.reflink_clones)
+        + ",\"hardlinks\":" + to_string(s.hardlinks)
+        + ",\"symlinks\":" + to_string(s.symlinks)
+        + ",\"skipped\":" + to_string(s.skipped)
+        + ",\"failed\":" + to_string(s.failed)
+        + ",\"records\":[";
+
+    let n: Int = list_len(s.records);
+    let mut i: Int = 0;
+    while i < n {
+        let rec: CpFileRecord = list_get(s.records, i);
+        out = out + record_to_json(rec);
+        if i + 1 < n {
+            out = out + ",";
+        }
+        i = i + 1;
+    }
+    out = out + "]}";
+    return out;
+}
+
+pub fn summary_to_jsonl(s: CpSummary) -> String {
+    let mut out: String = "";
+    let n: Int = list_len(s.records);
+    let mut i: Int = 0;
+    while i < n {
+        let rec: CpFileRecord = list_get(s.records, i);
+        out = out + record_to_json(rec) + "\n";
+        i = i + 1;
+    }
+    return out;
+}
